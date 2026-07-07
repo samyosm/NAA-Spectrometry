@@ -2,9 +2,9 @@ import io
 
 import pandas as pd
 import requests
-from curie import Reaction
+from curie import Element, Reaction
 
-from constants import THERMAL_NEUTRON_ENERGY_MEV
+from constants import N_A, SRM_1633C_COMPOSITION, THERMAL_NEUTRON_ENERGY_MEV
 
 
 def fetch_iaea(payload: dict) -> pd.DataFrame:
@@ -52,7 +52,7 @@ def get_thermal_xs(
     return xs, unc, xs_lib, unc_lib
 
 
-def get_gamma_lines(element: str):
+def get_element_gamma_signature(element: str):
     all_isotopes = fetch_iaea({"fields": "ground_states", "nuclides": "all"})
 
     element_isotopes = all_isotopes.loc[all_isotopes["symbol"] == element]
@@ -68,7 +68,7 @@ def get_gamma_lines(element: str):
 
         # Half life of the isotope after acquiring a neutron
         product_isotope = element_isotopes.loc[
-            element_isotopes["z"] + element_isotopes["n"] == (mass + 1)
+            (element_isotopes["z"] == z) & (element_isotopes["n"] == (n + 1))
         ]
 
         if product_isotope.empty:
@@ -96,7 +96,11 @@ def get_gamma_lines(element: str):
         if gamma_lines.empty:
             continue
 
-        gamma_lines = gamma_lines[["energy", "unc_en", "intensity", "unc_i"]].assign(
+        gamma_lines = gamma_lines[
+            ["energy", "unc_en", "intensity", "unc_i"]
+        ].drop_duplicates()
+
+        gamma_lines = gamma_lines.assign(
             symbol=target["symbol"],
             target_abundance=target["abundance"],
             target_unc_a=target["unc_a"],
@@ -120,9 +124,38 @@ def get_gamma_lines(element: str):
     return pd.concat(all_gamma_lines, ignore_index=True)
 
 
+def get_element_molar_mass(element):
+    el = Element(element)
+    return el.mass
+
+
+def get_compound_gamma_signature(composition: dict[str, float], sample_mass: float):
+    compound_gamma_signatures = []
+
+    for element, mass_pct in composition.items():
+        element_gamma_lines = get_element_gamma_signature(element)
+
+        if element_gamma_lines is None or element_gamma_lines.empty:
+            continue
+
+        molar_mass = get_element_molar_mass(element)
+        element_mass = sample_mass * mass_pct
+        element_moles = element_mass / molar_mass
+        element_atoms = element_moles * N_A
+
+        element_gamma_lines = element_gamma_lines.assign(
+            atom_count=element_atoms * (element_gamma_lines["target_abundance"] / 100.0)
+        )
+
+        compound_gamma_signatures.append(element_gamma_lines)
+
+    compound_gamma_signature = pd.concat(compound_gamma_signatures, ignore_index=True)
+    return compound_gamma_signature
+
+
 def main():
-    gamma_lines = get_gamma_lines("Fe")
-    print(gamma_lines.columns)
+    cg = get_compound_gamma_signature(SRM_1633C_COMPOSITION, 75)
+    cg.to_csv("signature.csv")
 
 
 if __name__ == "__main__":

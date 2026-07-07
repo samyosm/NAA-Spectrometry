@@ -1,10 +1,13 @@
-def main():
-    from curie import Reaction  # or npat
+from constants import SRM_1633C_COMPOSITION
 
-    rx = Reaction("54FE(n,g)55FE", "tendl")
-    print(rx.eng[:10])
-    print(rx.xs[:10])
-    print(rx.unc_xs[:10])
+
+def main():
+    total = 0
+
+    for _, percent in SRM_1633C_COMPOSITION.items():
+        total += percent
+
+    print(total)
 
 
 if __name__ == "__main__":
