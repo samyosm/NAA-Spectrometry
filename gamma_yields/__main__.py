@@ -1,20 +1,31 @@
 import io
+from functools import lru_cache
 
+import numpy as np
 import pandas as pd
 import requests
 from curie import Element, Reaction
+from tqdm import tqdm
 
 from constants import N_A, SRM_1633C_COMPOSITION, THERMAL_NEUTRON_ENERGY_MEV
 
 
-def fetch_iaea(payload: dict) -> pd.DataFrame:
+@lru_cache(maxsize=128)
+def _fetch_iaea_cached(payload_tuple: frozenset) -> pd.DataFrame:
     BASE_URL = "https://nds.iaea.org/relnsd/v1/data"
     HEADERS = {"User-Agent": "Livechart/1.0"}
+
+    payload = dict(payload_tuple)
 
     response = requests.get(BASE_URL, headers=HEADERS, params=payload)
     response.raise_for_status()
 
     return pd.read_csv(io.StringIO(response.text))
+
+
+def fetch_iaea(payload: dict) -> pd.DataFrame:
+    payload_tuple = frozenset(payload.items())
+    return _fetch_iaea_cached(payload_tuple).copy()
 
 
 def get_thermal_xs(
@@ -132,7 +143,9 @@ def get_element_molar_mass(element):
 def get_compound_gamma_signature(composition: dict[str, float], sample_mass: float):
     compound_gamma_signatures = []
 
-    for element, mass_pct in composition.items():
+    for element, mass_pct in tqdm(
+        composition.items(), desc="Calculating gamma signature"
+    ):
         element_gamma_lines = get_element_gamma_signature(element)
 
         if element_gamma_lines is None or element_gamma_lines.empty:
@@ -153,9 +166,46 @@ def get_compound_gamma_signature(composition: dict[str, float], sample_mass: flo
     return compound_gamma_signature
 
 
+def compute_gamma_yields(
+    df: pd.DataFrame,
+    flux: float,
+    irradiation_time: float,
+    cooling_time: float,
+    counting_time: float,
+):
+    decay_constant = np.log(2) / df["product_half_life_sec"]
+    cross_section = df["thermal_xs_mb"] * 1e-3 * 1e-24  # mb -> barn -> cm^2
+
+    # Activity at the end of radiation
+    df["A0"] = (
+        df["atom_count"]
+        * cross_section
+        * flux
+        * (1 - np.exp(-decay_constant * irradiation_time))
+    )
+
+    # Decay during cooling
+    df["A_decayed"] = df["A0"] * np.exp(-decay_constant * cooling_time)
+
+    # Decay during counting
+    df["decays_during_count"] = (
+        df["A_decayed"] * (1 - np.exp(-decay_constant * counting_time)) / decay_constant
+    )
+
+    # Gamma yields
+    df["n_gamma"] = df["decays_during_count"] * (df["intensity"] / 100.0)
+
+    return df
+
+
+def compute_gamma_yields_srm_1633c():
+    compound_signature = get_compound_gamma_signature(SRM_1633C_COMPOSITION, 75)
+    return compute_gamma_yields(compound_signature, 10e11, 3600, 600, 1800)
+
+
 def main():
-    cg = get_compound_gamma_signature(SRM_1633C_COMPOSITION, 75)
-    cg.to_csv("signature.csv")
+    gamma_yields = compute_gamma_yields_srm_1633c()
+    gamma_yields.to_csv("data/srm_1633c_gamma_yields.csv")
 
 
 if __name__ == "__main__":
