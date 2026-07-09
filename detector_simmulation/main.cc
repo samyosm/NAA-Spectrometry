@@ -5,55 +5,27 @@
 #include "G4RunManagerFactory.hh"
 #include "G4UImanager.hh"
 
-#include <algorithm>
 #include <filesystem>
-#include <fstream>
-#include <regex>
-#include <vector>
+#include <string>
 
 namespace fs = std::filesystem;
-
-void MergePerThreadCsvOutputs(const fs::path &dataDir) {
-  static const std::regex perThreadCsvPattern(R"(.*[tT][0-9].*\.csv)");
-
-  std::vector<fs::path> csvFiles;
-  for (const auto &entry : fs::directory_iterator(dataDir)) {
-    if (entry.is_regular_file() &&
-        std::regex_match(entry.path().filename().string(),
-                         perThreadCsvPattern)) {
-      csvFiles.push_back(entry.path());
-    }
-  }
-  std::sort(csvFiles.begin(), csvFiles.end());
-
-  std::ofstream out(dataDir / "detector_simulation.csv");
-  bool headerWritten = false;
-  for (const auto &file : csvFiles) {
-    {
-      std::ifstream in(file);
-      std::string line;
-      bool firstLine = true;
-      while (std::getline(in, line)) {
-        if (firstLine) {
-          firstLine = false;
-          if (headerWritten) {
-            continue;
-          }
-          headerWritten = true;
-        }
-        out << line << '\n';
-      }
-    }
-    fs::remove(file);
-  }
-}
-
-int main() {
+int main(int argc, char *argv[]) {
   auto runManager = G4RunManagerFactory::CreateRunManager();
+
+  std::string dataDir = "./data/";
+
+  if (argc >= 2) {
+    fs::path dirPath(argv[1]);
+    dataDir = fs::absolute(dirPath);
+    std::cout << "Data directory: " << dataDir << std::endl;
+  }
 
   runManager->SetUserInitialization(new DetectorConstruction);
   runManager->SetUserInitialization(new FTFP_BERT);
-  runManager->SetUserInitialization(new ActionInitialization);
+
+  auto actionInitialization =
+      new ActionInitialization(dataDir, "srm_1633c_gamma_yields.csv");
+  runManager->SetUserInitialization(actionInitialization);
 
   runManager->Initialize();
 
@@ -61,13 +33,17 @@ int main() {
   UI->ApplyCommand("/run/verbose 0");
   UI->ApplyCommand("/event/verbose 0");
   UI->ApplyCommand("/tracking/verbose 0");
+  UI->ApplyCommand("/run/printProgress 1000000");
 
-  int numberOfEvent = 200000;
+  long long numberOfEvent = 2995;
+
+  if (argc >= 3) {
+    numberOfEvent = std::stoll(argv[2]);
+  }
+
   runManager->BeamOn(numberOfEvent);
 
   delete runManager;
-
-  MergePerThreadCsvOutputs("../data/");
 
   return 0;
 }

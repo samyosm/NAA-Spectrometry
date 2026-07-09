@@ -14,4 +14,6 @@ void EventAction::EndOfEventAction(const G4Event *event) {
   analysisManager->FillNtupleIColumn(0, event->GetEventID());
   analysisManager->FillNtupleDColumn(1, fEdepTotal / keV);
   analysisManager->AddNtupleRow();
+
+  fEdepTotal = 0.0;
 }
