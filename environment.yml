@@ -11,6 +11,14 @@ dependencies:
   - requests>=2.34.2
   - tqdm>=4.68.4
   - pip
+  - marimo
+  - altair
+  - uproot
+  - cmake
+  - adjustText
+  - vl-convert-python
+  - ruff
+  - pillow
   - pip:
       - curie>=0.1.0
       - geant4_pybind

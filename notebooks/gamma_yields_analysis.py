@@ -48,7 +48,7 @@ def _():
 
     df = pd.read_csv("data/srm_1633c_gamma_yields.csv")
     df
-    return alt, df, mo
+    return alt, df, mo, plt
 
 
 @app.cell(hide_code=True)
@@ -64,7 +64,7 @@ def _(mo):
 @app.cell
 def _(alt, df, mo):
     df_visible = df[df["n_gamma"] > 1e-1]
-
+    alt.data_transformers.enable("default", max_rows=None)
     selection = alt.selection_point(fields=["symbol"], bind="legend")
 
     chart = (
@@ -78,7 +78,6 @@ def _(alt, df, mo):
                 scale=alt.Scale(type="log"),
             ),
             color=alt.Color("symbol:N", title="Element"),
-            # Smooth UX: If selected, opacity is 1. If not, it drops to 0.05 (semi-invisible)
             opacity=alt.condition(selection, alt.value(1.0), alt.value(0)),
             tooltip=["symbol", "energy", "n_gamma", "product_half_life_sec"],
         )
@@ -88,6 +87,13 @@ def _(alt, df, mo):
         )
         .interactive()
     )
+
+    chart.save("assets/predicted_naa_gamma_spectrum_lines_for_srm_1633c.png", scale_factor=2, ppi=300)
+
+    from PIL import Image
+
+    img = Image.open("assets/predicted_naa_gamma_spectrum_lines_for_srm_1633c.png")
+    img.save("assets/predicted_naa_gamma_spectrum_lines_for_srm_1633c.png", optimize=True) 
 
     mo.ui.altair_chart(chart, legend_selection=False, chart_selection=False)
     return (df_visible,)
@@ -104,35 +110,33 @@ def _(mo):
 
 
 @app.cell
-def _(alt, df_visible, mo):
-    df_bar = df_visible.groupby(["symbol"])["n_gamma"].sum().reset_index()
+def _(df_visible, plt):
 
-    bar_chart = (
-        alt.Chart(df_bar)
-        .mark_bar()
-        .encode(
-            x=alt.X(
-                "symbol:N",
-                title="Element",
-                sort=alt.EncodingSortField(field="n_gamma", order="descending"),
-            ),
-            y=alt.Y(
-                "n_gamma:Q",
-                title="Total Cumulative Gamma Yield (Counts)",
-                scale=alt.Scale(type="log", domainMin=0.1),
-            ),
-            y2=alt.datum(0.1),
-            tooltip=["symbol", "n_gamma"],
-        )
-        .properties(
-            width=750,
-            height=400,
-            title="Total Predicted Gamma Yield Contribution by Element (SRM 1633c)",
-        )
-        .interactive()
+    df_bar = df_visible.groupby("symbol")["n_gamma"].sum().reset_index()
+    df_bar = df_bar.sort_values("n_gamma", ascending=False)
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.bar(df_bar["symbol"], df_bar["n_gamma"], color="steelblue")
+
+    ax.set_yscale("log")
+    ax.set_ylim(bottom=0.1)
+    ax.set_xlabel("Element")
+    ax.set_ylabel("Total Cumulative Gamma Yield (Counts)")
+    ax.set_title("Total Predicted Gamma Yield Contribution by Element (SRM 1633c)")
+    plt.xticks(rotation=90)
+
+    fig.tight_layout()
+    fig.savefig(
+        "assets/predicted_naa_gamma_element_contributions_for_srm_1633c.png",
+        dpi=600,
     )
+    plt.show()
+    return
 
-    mo.ui.altair_chart(bar_chart)
+
+@app.cell
+def _(df):
+    df["n_gamma"].sum()
     return
 
 

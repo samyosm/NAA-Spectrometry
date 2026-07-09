@@ -11,3 +11,7 @@ wheels/
 
 # Marimo-genareted files
 __marimo__
+
+# Data files
+data/*
+!data/.gitkeep 
